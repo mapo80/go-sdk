@@ -4,7 +4,7 @@ Fork of `github.com/modelcontextprotocol/go-sdk` for ARC (`arc-workspace`). The 
 
 - **Upstream base:** tag `v1.8.0`, commit `3f3b699b2b67e1ed033a63d6651671dab53c2d32`.
 - **License:** unchanged (`LICENSE`, as upstream).
-- **Branch of the changes:** `arc/json-v2`, merged into `main`.
+- **Branch of the changes:** `arc/json-v2`, recorded in `main` with a merge that keeps main's content (`main` follows upstream past v1.8.0 and rewrote `internal/json` in #1454). ARC uses the annotated tag `v1.8.0-arc.1` on `arc/json-v2`.
 - **Go:** `go 1.27` (`encoding/json/v2` and `encoding/json/jsontext` from the standard library).
 - **Goal:** one JSON library in ARC's server build, the standard library's `encoding/json/v2`.
 
