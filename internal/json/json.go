@@ -8,11 +8,18 @@ package json
 
 import (
 	"bytes"
+	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"io"
-
-	"github.com/segmentio/encoding/json"
+	"sync"
 )
+
+// decodeOptions are the semantics of encoding/json with the object names
+// matched case-sensitively: the last of duplicate names wins, invalid UTF-8
+// becomes U+FFFD, numbers in an interface are float64.
+var decodeOptions = jsonv2.JoinOptions(json.DefaultOptionsV1(), jsonv2.MatchCaseInsensitiveNames(false))
 
 // defaultMaxDepth is the maximum JSON nesting depth accepted by [Unmarshal].
 // Realistic MCP payloads nest only a handful of levels, so 1000 is far more
@@ -23,25 +30,45 @@ const defaultMaxDepth = 1000
 // errMaxDepthExceeded is returned by [Unmarshal] when the input nests deeper than [defaultMaxDepth].
 var errMaxDepthExceeded = fmt.Errorf("json: exceeded maximum nesting depth of %d", defaultMaxDepth)
 
+// Decoder reads a stream of JSON values, one per Decode.
 type Decoder struct {
-	dec *json.Decoder
+	dec *jsontext.Decoder
 }
 
 func NewDecoder(r io.Reader) *Decoder {
-	dec := json.NewDecoder(r)
-	dec.DontMatchCaseInsensitiveStructFields()
-	return &Decoder{dec: dec}
+	return &Decoder{dec: jsontext.NewDecoder(r, decodeOptions)}
 }
 
+// Decode reads the next JSON value into v; it reports io.EOF when the
+// stream has no more values.
 func (d *Decoder) Decode(v any) error {
-	return d.dec.Decode(v)
+	return jsonv2.UnmarshalDecode(d.dec, v, decodeOptions)
 }
 
+// bytesDecoder reads directly from the bytes held by buf (jsontext does
+// not copy a bytes.Buffer); both are reused across calls.
+type bytesDecoder struct {
+	buf bytes.Buffer
+	dec jsontext.Decoder
+}
+
+var bytesDecoders = sync.Pool{New: func() any { return new(bytesDecoder) }}
+
+// Unmarshal reads the first JSON value of data into v, as a Decoder would;
+// data after that value is not read.
 func Unmarshal(data []byte, v any) error {
 	if err := checkMaxDepth(data, defaultMaxDepth); err != nil {
 		return err
 	}
-	return NewDecoder(bytes.NewReader(data)).Decode(v)
+	d := bytesDecoders.Get().(*bytesDecoder)
+	d.buf = *bytes.NewBuffer(data)
+	d.dec.Reset(&d.buf, decodeOptions)
+	err := jsonv2.UnmarshalDecode(&d.dec, v)
+	// Drop the reference to data before the decoder goes back to the pool.
+	d.buf = bytes.Buffer{}
+	d.dec.Reset(&d.buf)
+	bytesDecoders.Put(d)
+	return err
 }
 
 // checkMaxDepth scans data once and reports [errMaxDepthExceeded] if the
